@@ -1,0 +1,83 @@
+import cv2
+import numpy as np
+import os
+def get_disc_circles(image):
+    """Detects circles (glass discs) on the insulator string in the image using Hough Circles."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (15, 15), 2)
+    circles = cv2.HoughCircles(
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=40,
+        param1=80,
+        param2=30,
+        minRadius=20,
+        maxRadius=50
+    )
+    if circles is not None:
+        circles = np.round(circles[0, :]).astype("int")
+        circles = sorted(circles, key=lambda c: c[1])
+    else:
+        circles = []
+    return circles
+def template_match_defect(good_img, bad_img, circles):
+    """For each detected disc, uses template matching to detect missing/broken ones."""
+    defects = []
+    for (x, y, r) in circles:
+        pad = int(r * 1.1)
+        template = good_img[max(y-pad,0):min(y+pad,good_img.shape[0]), max(x-pad,0):min(x+pad,good_img.shape[1])]
+        search = bad_img[max(y-pad,0):min(y+pad,bad_img.shape[0]), max(x-pad,0):min(x+pad,bad_img.shape[1])]
+        if template.shape[:2] != search.shape[:2] or 0 in template.shape or 0 in search.shape:
+            continue
+        method = cv2.TM_CCOEFF_NORMED
+        res = cv2.matchTemplate(search, template, method)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
+        if max_val < 0.5:  # Adjust threshold as needed
+            defects.append((x, y, pad))
+    return defects
+def main(dataset_path, auto_close=False):
+    good_dir = os.path.join(dataset_path, "GOOD")
+    bad_dir = os.path.join(dataset_path, "BAD")
+    good_files = [f for f in os.listdir(good_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    if not good_files:
+        print("No GOOD images found!")
+        return
+    good_path = os.path.join(good_dir, good_files[0])  # Use only the first GOOD file
+    good_img = cv2.imread(good_path)
+    if good_img is None:
+        print("Could not read a good reference image!")
+        return
+    bad_files = [f for f in os.listdir(bad_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    for bad_file in bad_files:
+        bad_path = os.path.join(bad_dir, bad_file)
+        bad_img = cv2.imread(bad_path)
+        if bad_img is None:
+            print(f"Could not read {bad_file}")
+            continue
+        if good_img.shape != bad_img.shape:
+            bad_img = cv2.resize(bad_img, (good_img.shape[1], good_img.shape[0]))
+        circles = get_disc_circles(good_img)
+        defects = template_match_defect(good_img, bad_img, circles)
+        output = bad_img.copy()
+        # Draw ONE as-tight-as-possible red box around actual defect locations
+        if defects:
+            mask = np.zeros(output.shape[:2], dtype=np.uint8)
+            for (x, y, pad) in defects:
+                cv2.circle(mask, (x, y), 4, 255, -1)  # tight spot for each defect
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                cnt_all = np.vstack(contours)
+                x, y, w, h = cv2.boundingRect(cnt_all)
+                cv2.rectangle(output, (x, y), (x + w, y + h), (0, 0, 255), 3)
+        cv2.imshow("GOOD reference image", good_img)
+        cv2.imshow(f"Defects in BAD image: {bad_file}", output)
+        if auto_close:
+            cv2.waitKey(1000)
+            cv2.destroyAllWindows()
+        else:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+if __name__ == "__main__":
+    dataset_path = r"C:\Users\Niranjankrishnakumar\OneDrive\Desktop\ip\dataset"
+    main(dataset_path, auto_close=False)

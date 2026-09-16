@@ -1,0 +1,103 @@
+import cv2
+import numpy as np
+import os
+from skimage.feature import hog, local_binary_pattern
+
+def rust_mask(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    lower_rust = np.array([5, 60, 60])
+    upper_rust = np.array([25, 255, 255])
+    mask1 = cv2.inRange(hsv, lower_rust, upper_rust)
+    lower_red = np.array([0, 40, 40])
+    upper_red = np.array([10, 255, 255])
+    mask2 = cv2.inRange(hsv, lower_red, upper_red)
+    mask = cv2.bitwise_or(mask1, mask2)
+    mask = cv2.medianBlur(mask, 9)
+    return mask
+
+def lbp_diff_mask(good_img, bad_img, radius=2, n_points=16, threshold=30):
+    gray_good = cv2.cvtColor(good_img, cv2.COLOR_BGR2GRAY)
+    gray_bad = cv2.cvtColor(bad_img, cv2.COLOR_BGR2GRAY)
+    lbp_good = local_binary_pattern(gray_good, n_points, radius, method="uniform")
+    lbp_bad = local_binary_pattern(gray_bad, n_points, radius, method="uniform")
+    lbp_diff = cv2.absdiff(lbp_good.astype(np.uint8), lbp_bad.astype(np.uint8))
+    _, lbp_bin = cv2.threshold(lbp_diff, threshold, 255, cv2.THRESH_BINARY)
+    return lbp_bin
+
+def hog_diff_mask(good_img, bad_img, threshold=50):
+    gray_good = cv2.cvtColor(good_img, cv2.COLOR_BGR2GRAY)
+    gray_bad = cv2.cvtColor(bad_img, cv2.COLOR_BGR2GRAY)
+    _, hog_good = hog(gray_good, orientations=8, pixels_per_cell=(8,8), cells_per_block=(1,1), visualize=True, channel_axis=None)
+    _, hog_bad = hog(gray_bad, orientations=8, pixels_per_cell=(8,8), cells_per_block=(1,1), visualize=True, channel_axis=None)
+    hog_good = cv2.normalize(hog_good, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    hog_bad = cv2.normalize(hog_bad, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    hog_diff = cv2.absdiff(hog_good, hog_bad)
+    _, hog_mask = cv2.threshold(hog_diff, threshold, 255, cv2.THRESH_BINARY)
+    return hog_mask
+
+def main(dataset_path, auto_close=False):
+    good_img = cv2.imread(os.path.join(dataset_path, "GOOD", os.listdir(os.path.join(dataset_path, "GOOD"))[0]))
+    bad_dir = os.path.join(dataset_path, "BAD")
+    bad_files = [f for f in os.listdir(bad_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+    for bad_file in bad_files:
+        bad_path = os.path.join(bad_dir, bad_file)
+        bad_img = cv2.imread(bad_path)
+        if bad_img is None: continue
+        if good_img.shape != bad_img.shape:
+            bad_img = cv2.resize(bad_img, (good_img.shape[1], good_img.shape[0]))
+
+        #--- Mask building for anomaly (nest, twigs, alien structure) ---
+        lbp_mask = lbp_diff_mask(good_img, bad_img)
+        hog_mask = hog_diff_mask(good_img, bad_img)
+        rust = rust_mask(bad_img)
+
+        combined_mask = cv2.bitwise_or(lbp_mask, hog_mask)
+        combined_mask = cv2.bitwise_or(combined_mask, rust)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9,9))
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+        # Optional: Remove small noise/blobs
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+
+        min_box_area = 750      # Higher threshold: only respond to major alien features
+        max_noise_boxes = 3     # Helps avoid flagging tiny/noise boxes
+
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        output = bad_img.copy()
+        boxes_drawn = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > min_box_area:
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.rectangle(output, (x, y), (x+w, y+h), (0,0,255), 3)
+                boxes_drawn += 1
+
+        # If nothing alien is found, use the main hardware region from reference for green box
+        if boxes_drawn == 0:
+            # Use largest contour from reference image (GOOD) as green box
+            ref_gray = cv2.cvtColor(good_img, cv2.COLOR_BGR2GRAY)
+            _, ref_bin = cv2.threshold(ref_gray, 40, 255, cv2.THRESH_BINARY)
+            ref_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (13, 13))
+            ref_bin = cv2.morphologyEx(ref_bin, cv2.MORPH_CLOSE, ref_kernel)
+            ref_contours, _ = cv2.findContours(ref_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if ref_contours:
+                biggest = max(ref_contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(biggest)
+                cv2.rectangle(output, (x, y), (x+w, y+h), (0,255,0), 4) # Green box
+            else:
+                # Fallback: green box whole image
+                h, w = bad_img.shape[:2]
+                cv2.rectangle(output, (5, 5), (w-5, h-5), (0,255,0), 4)
+
+        cv2.imshow(f"GOOD reference image", good_img)
+        cv2.imshow(f"Nest/Twig Detection: {bad_file}", output)
+        if auto_close:
+            cv2.waitKey(1200)
+            cv2.destroyAllWindows()
+        else:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    dataset_path = r"C:\Users\Niranjankrishnakumar\OneDrive\Desktop\ip\dataset2"
+    main(dataset_path, auto_close=False)

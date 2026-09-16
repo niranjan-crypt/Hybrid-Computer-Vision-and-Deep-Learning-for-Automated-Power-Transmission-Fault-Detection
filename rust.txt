@@ -1,0 +1,88 @@
+import cv2
+import numpy as np
+import os
+
+def rust_mask(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    lower_rust = np.array([5, 60, 60])
+    upper_rust = np.array([25, 255, 255])
+    mask1 = cv2.inRange(hsv, lower_rust, upper_rust)
+    lower_red = np.array([0, 40, 40])
+    upper_red = np.array([10, 255, 255])
+    mask2 = cv2.inRange(hsv, lower_red, upper_red)
+    mask = cv2.bitwise_or(mask1, mask2)
+    mask = cv2.medianBlur(mask, 9)
+    return mask
+
+def keypoint_mismatch_mask(good_img, bad_img):
+    orb = cv2.ORB_create(nfeatures=1000)
+    kp1, des1 = orb.detectAndCompute(good_img, None)
+    kp2, des2 = orb.detectAndCompute(bad_img, None)
+    match_mask = np.zeros(good_img.shape[:2], dtype=np.uint8)
+    if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        matches = bf.knnMatch(des1, des2, k=2)
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.7 * n.distance:
+                good_matches.append(m)
+        for m in good_matches:
+            x, y = map(int, kp2[m.trainIdx].pt)
+            cv2.circle(match_mask, (x, y), 6, 255, -1)
+    return 255 - match_mask
+
+def main(dataset_path, auto_close=False):
+    good_dir = os.path.join(dataset_path, "GOOD")
+    bad_dir = os.path.join(dataset_path, "BAD")
+    good_files = [f for f in os.listdir(good_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    if not good_files:
+        print("No GOOD images found!")
+        return
+    good_path = os.path.join(good_dir, good_files[0])
+    good_img = cv2.imread(good_path)
+    if good_img is None:
+        print("Could not read GOOD image!")
+        return
+
+    bad_files = [f for f in os.listdir(bad_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    for bad_file in bad_files:
+        bad_path = os.path.join(bad_dir, bad_file)
+        bad_img = cv2.imread(bad_path)
+        if bad_img is None:
+            print(f"Could not read {bad_file}")
+            continue
+        if good_img.shape != bad_img.shape:
+            bad_img = cv2.resize(bad_img, (good_img.shape[1], good_img.shape[0]))
+        
+        # Rust detection (feature-based, core algorithm)
+        rust = rust_mask(bad_img)
+
+        # Optional: also catch drastic missing component changes if needed
+        # kp_diff_mask = keypoint_mismatch_mask(good_img, bad_img)
+        # combined_mask = cv2.bitwise_or(rust, kp_diff_mask)
+        combined_mask = rust.copy()
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9,9))
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+
+        # Find each separate significant rust region and draw a box
+        min_box_area = 350  # Lower for smaller spots, increase for bigger only
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        output = bad_img.copy()
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > min_box_area:
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.rectangle(output, (x, y), (x + w, y + h), (0, 0, 255), 3)
+
+        cv2.imshow("GOOD reference image", good_img)
+        cv2.imshow(f"Defects in BAD image: {bad_file}", output)
+        if auto_close:
+            cv2.waitKey(1200)
+            cv2.destroyAllWindows()
+        else:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    dataset_path = r"C:\Users\Niranjankrishnakumar\OneDrive\Desktop\ip\dataset1"
+    main(dataset_path, auto_close=False)

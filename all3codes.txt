@@ -1,0 +1,237 @@
+import cv2
+import numpy as np
+import os
+from skimage.feature import hog, local_binary_pattern
+
+def get_disc_circles(image):
+    """Detects circles (glass discs) on the insulator string in the image using Hough Circles."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (15, 15), 2)
+    circles = cv2.HoughCircles(
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=40,
+        param1=80,
+        param2=30,
+        minRadius=20,
+        maxRadius=50
+    )
+    if circles is not None:
+        circles = np.round(circles[0, :]).astype("int")
+        circles = sorted(circles, key=lambda c: c[1])
+    else:
+        circles = []
+    return circles
+
+def template_match_defect(good_img, bad_img, circles):
+    """For each detected disc, uses template matching to detect missing/broken ones."""
+    defects = []
+    for (x, y, r) in circles:
+        pad = int(r * 1.1)
+        template = good_img[max(y-pad,0):min(y+pad,good_img.shape[0]), max(x-pad,0):min(x+pad,good_img.shape[1])]
+        search = bad_img[max(y-pad,0):min(y+pad,bad_img.shape[0]), max(x-pad,0):min(x+pad,bad_img.shape[1])]
+        if template.shape[:2] != search.shape[:2] or 0 in template.shape or 0 in search.shape:
+            continue
+        method = cv2.TM_CCOEFF_NORMED
+        res = cv2.matchTemplate(search, template, method)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
+        if max_val < 0.5:  # Adjust threshold as needed
+            defects.append((x, y, pad))
+    return defects
+
+def rust_mask(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    lower_rust = np.array([5, 60, 60])
+    upper_rust = np.array([25, 255, 255])
+    mask1 = cv2.inRange(hsv, lower_rust, upper_rust)
+    lower_red = np.array([0, 40, 40])
+    upper_red = np.array([10, 255, 255])
+    mask2 = cv2.inRange(hsv, lower_red, upper_red)
+    mask = cv2.bitwise_or(mask1, mask2)
+    mask = cv2.medianBlur(mask, 9)
+    return mask
+
+def lbp_diff_mask(good_img, bad_img, radius=2, n_points=16, threshold=30):
+    gray_good = cv2.cvtColor(good_img, cv2.COLOR_BGR2GRAY)
+    gray_bad = cv2.cvtColor(bad_img, cv2.COLOR_BGR2GRAY)
+    lbp_good = local_binary_pattern(gray_good, n_points, radius, method="uniform")
+    lbp_bad = local_binary_pattern(gray_bad, n_points, radius, method="uniform")
+    lbp_diff = cv2.absdiff(lbp_good.astype(np.uint8), lbp_bad.astype(np.uint8))
+    _, lbp_bin = cv2.threshold(lbp_diff, threshold, 255, cv2.THRESH_BINARY)
+    return lbp_bin
+
+def hog_diff_mask(good_img, bad_img, threshold=50):
+    gray_good = cv2.cvtColor(good_img, cv2.COLOR_BGR2GRAY)
+    gray_bad = cv2.cvtColor(bad_img, cv2.COLOR_BGR2GRAY)
+    _, hog_good = hog(gray_good, orientations=8, pixels_per_cell=(8,8), cells_per_block=(1,1), visualize=True, channel_axis=None)
+    _, hog_bad = hog(gray_bad, orientations=8, pixels_per_cell=(8,8), cells_per_block=(1,1), visualize=True, channel_axis=None)
+    hog_good = cv2.normalize(hog_good, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    hog_bad = cv2.normalize(hog_bad, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    hog_diff = cv2.absdiff(hog_good, hog_bad)
+    _, hog_mask = cv2.threshold(hog_diff, threshold, 255, cv2.THRESH_BINARY)
+    return hog_mask
+
+def keypoint_mismatch_mask(good_img, bad_img):
+    orb = cv2.ORB_create(nfeatures=1000)
+    kp1, des1 = orb.detectAndCompute(good_img, None)
+    kp2, des2 = orb.detectAndCompute(bad_img, None)
+    match_mask = np.zeros(good_img.shape[:2], dtype=np.uint8)
+    if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        matches = bf.knnMatch(des1, des2, k=2)
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.7 * n.distance:
+                good_matches.append(m)
+        for m in good_matches:
+            x, y = map(int, kp2[m.trainIdx].pt)
+            cv2.circle(match_mask, (x, y), 6, 255, -1)
+    return 255 - match_mask
+
+def main(dataset_path1, dataset_path2, dataset_path3, auto_close=False):
+    # Code1: Disc defect detection
+    good_dir1 = os.path.join(dataset_path1, "GOOD")
+    bad_dir1 = os.path.join(dataset_path1, "BAD")
+    good_files1 = [f for f in os.listdir(good_dir1) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    if not good_files1:
+        print("No GOOD images found in dataset 1!")
+        return
+    good_path1 = os.path.join(good_dir1, good_files1[0])  # Use only the first GOOD file
+    good_img1 = cv2.imread(good_path1)
+    if good_img1 is None:
+        print("Could not read a good reference image in dataset 1!")
+        return
+    bad_files1 = [f for f in os.listdir(bad_dir1) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    for bad_file1 in bad_files1:
+        bad_path1 = os.path.join(bad_dir1, bad_file1)
+        bad_img1 = cv2.imread(bad_path1)
+        if bad_img1 is None:
+            print(f"Could not read {bad_file1} in dataset 1")
+            continue
+        if good_img1.shape != bad_img1.shape:
+            bad_img1 = cv2.resize(bad_img1, (good_img1.shape[1], good_img1.shape[0]))
+        circles = get_disc_circles(good_img1)
+        defects = template_match_defect(good_img1, bad_img1, circles)
+        output1 = bad_img1.copy()
+        if defects:
+            mask = np.zeros(output1.shape[:2], dtype=np.uint8)
+            for (x, y, pad) in defects:
+                cv2.circle(mask, (x, y), 4, 255, -1)  # tight spot for each defect
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                cnt_all = np.vstack(contours)
+                x, y, w, h = cv2.boundingRect(cnt_all)
+                cv2.rectangle(output1, (x, y), (x + w, y + h), (0, 0, 255), 3)
+        cv2.imshow("GOOD reference image (Dataset1)", good_img1)
+        cv2.imshow(f"Defects in BAD image (Dataset1): {bad_file1}", output1)
+        if auto_close:
+            cv2.waitKey(1000)
+            cv2.destroyAllWindows()
+        else:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+    # Code2: Nest/Twig anomaly detection
+    good_path2 = os.path.join(dataset_path2, "GOOD", os.listdir(os.path.join(dataset_path2, "GOOD"))[0])
+    good_img2 = cv2.imread(good_path2)
+    if good_img2 is None:
+        print("Could not read good reference image in dataset 2!")
+        return
+    bad_dir2 = os.path.join(dataset_path2, "BAD")
+    bad_files2 = [f for f in os.listdir(bad_dir2) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    for bad_file2 in bad_files2:
+        bad_path2 = os.path.join(bad_dir2, bad_file2)
+        bad_img2 = cv2.imread(bad_path2)
+        if bad_img2 is None:
+            print(f"Could not read {bad_file2} in dataset 2")
+            continue
+        if good_img2.shape != bad_img2.shape:
+            bad_img2 = cv2.resize(bad_img2, (good_img2.shape[1], good_img2.shape[0]))
+        lbp_mask = lbp_diff_mask(good_img2, bad_img2)
+        hog_mask = hog_diff_mask(good_img2, bad_img2)
+        rust = rust_mask(bad_img2)
+        combined_mask = cv2.bitwise_or(lbp_mask, hog_mask)
+        combined_mask = cv2.bitwise_or(combined_mask, rust)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9,9))
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+        min_box_area = 750
+        boxes_drawn = 0
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        output2 = bad_img2.copy()
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > min_box_area:
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.rectangle(output2, (x, y), (x+w, y+h), (0,0,255), 3)
+                boxes_drawn += 1
+        if boxes_drawn == 0:
+            ref_gray = cv2.cvtColor(good_img2, cv2.COLOR_BGR2GRAY)
+            _, ref_bin = cv2.threshold(ref_gray, 40, 255, cv2.THRESH_BINARY)
+            ref_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (13, 13))
+            ref_bin = cv2.morphologyEx(ref_bin, cv2.MORPH_CLOSE, ref_kernel)
+            ref_contours, _ = cv2.findContours(ref_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if ref_contours:
+                biggest = max(ref_contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(biggest)
+                cv2.rectangle(output2, (x, y), (x+w, y+h), (0,255,0), 4)
+            else:
+                h, w = bad_img2.shape[:2]
+                cv2.rectangle(output2, (5, 5), (w-5, h-5), (0,255,0), 4)
+        cv2.imshow(f"GOOD reference image (Dataset2)", good_img2)
+        cv2.imshow(f"Nest/Twig Detection: {bad_file2}", output2)
+        if auto_close:
+            cv2.waitKey(1200)
+            cv2.destroyAllWindows()
+        else:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+    # Code3: Rust detection
+    good_dir3 = os.path.join(dataset_path3, "GOOD")
+    bad_dir3 = os.path.join(dataset_path3, "BAD")
+    good_files3 = [f for f in os.listdir(good_dir3) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    if not good_files3:
+        print("No GOOD images found in dataset 3!")
+        return
+    good_path3 = os.path.join(good_dir3, good_files3[0])
+    good_img3 = cv2.imread(good_path3)
+    if good_img3 is None:
+        print("Could not read GOOD image in dataset 3!")
+        return
+    bad_files3 = [f for f in os.listdir(bad_dir3) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    for bad_file3 in bad_files3:
+        bad_path3 = os.path.join(bad_dir3, bad_file3)
+        bad_img3 = cv2.imread(bad_path3)
+        if bad_img3 is None:
+            print(f"Could not read {bad_file3} in dataset 3")
+            continue
+        if good_img3.shape != bad_img3.shape:
+            bad_img3 = cv2.resize(bad_img3, (good_img3.shape[1], good_img3.shape[0]))
+        rust = rust_mask(bad_img3)
+        combined_mask = rust.copy()
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9,9))
+        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+        min_box_area = 350
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        output3 = bad_img3.copy()
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > min_box_area:
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.rectangle(output3, (x, y), (x + w, y + h), (0, 0, 255), 3)
+        cv2.imshow("GOOD reference image (Dataset3)", good_img3)
+        cv2.imshow(f"Defects in BAD image (Dataset3): {bad_file3}", output3)
+        if auto_close:
+            cv2.waitKey(1200)
+            cv2.destroyAllWindows()
+        else:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    dataset_path1 = r"C:\Users\Niranjankrishnakumar\OneDrive\Desktop\ip\dataset"
+    dataset_path2 = r"C:\Users\Niranjankrishnakumar\OneDrive\Desktop\ip\dataset2"
+    dataset_path3 = r"C:\Users\Niranjankrishnakumar\OneDrive\Desktop\ip\dataset1"
+    main(dataset_path1, dataset_path2, dataset_path3, auto_close=False)

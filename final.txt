@@ -1,0 +1,207 @@
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.feature import graycomatrix, graycoprops, local_binary_pattern, hog
+import random
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, classification_report, precision_score
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
+
+# Suppress only the UndefinedMetricWarning from sklearn metrics
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
+
+# ------------------ Dataset path ------------------
+dataset_path = r"C:\Users\Niranjankrishnakumar\Downloads\Dataset_root"  # change this to your dataset folder
+
+# ------------------ Feature extraction functions ------------------
+
+def extract_glcm_features(gray):
+    glcm = graycomatrix(gray, [1], [0], 256, symmetric=True, normed=True)
+    contrast = graycoprops(glcm, 'contrast')[0, 0]
+    energy = graycoprops(glcm, 'energy')[0, 0]
+    homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
+    return [contrast, energy, homogeneity], glcm
+
+def extract_lbp_features(gray):
+    lbp = local_binary_pattern(gray, P=8, R=1, method="uniform")
+    (hist, _) = np.histogram(lbp.ravel(), bins=np.arange(0, 10), range=(0, 9))
+    hist = hist.astype("float")
+    hist /= (hist.sum() + 1e-6)
+    return hist.tolist(), lbp
+
+def extract_hog_features(gray):
+    features, hog_image = hog(gray, orientations=9, pixels_per_cell=(8, 8),
+                             cells_per_block=(2, 2), block_norm='L2-Hys', visualize=True)
+    return features[:50].tolist(), hog_image
+
+def extract_color_histogram(img, bins=16):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hist_h = cv2.calcHist([hsv], [0], None, [bins], [0, 180])
+    hist_s = cv2.calcHist([hsv], [1], None, [bins], [0, 256])
+    hist_v = cv2.calcHist([hsv], [2], None, [bins], [0, 256])
+    hist = np.concatenate([hist_h, hist_s, hist_v]).ravel()
+    hist = hist / (hist.sum() + 1e-6)
+    return hist.tolist()
+
+def extract_edge_features(gray):
+    edges = cv2.Canny(gray, 100, 200)
+    edge_density = edges.sum() / (edges.shape[0] * edges.shape[1])
+    return [edge_density], edges
+
+# ------------------ Step 3: Take 1 random image from each class & visualize ------------------
+X, y = [], []
+for root, dirs, files in os.walk(dataset_path):
+    img_files = [f for f in files if f.lower().endswith((".jpg", ".png", ".jpeg"))]
+    if img_files:
+        file = random.choice(img_files)  # pick a random image each run
+        label = os.path.basename(root)
+        path = os.path.join(root, file)
+        img = cv2.imread(path)
+        img = cv2.resize(img, (128, 128))
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        glcm_feat, glcm_matrix = extract_glcm_features(gray)
+        lbp_feat, lbp_image = extract_lbp_features(gray)
+        hog_feat, hog_image = extract_hog_features(gray)
+        color_feat = extract_color_histogram(img)
+        edge_feat, edge_image = extract_edge_features(gray)
+        features = glcm_feat + lbp_feat + hog_feat + color_feat + edge_feat
+        X.append(features)
+        y.append(label)
+
+        # Visualization
+        fig, axs = plt.subplots(1, 6, figsize=(20, 4))
+        axs[0].imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        axs[0].set_title("Original (Color)")
+        axs[0].axis("off")
+        axs[1].imshow(lbp_image, cmap="gray")
+        axs[1].set_title("LBP Features")
+        axs[1].axis("off")
+        axs[2].imshow(hog_image, cmap="gray")
+        axs[2].set_title("HOG Features")
+        axs[2].axis("off")
+        axs[3].imshow(glcm_matrix[:, :, 0, 0], cmap="inferno")
+        axs[3].set_title("GLCM Heatmap")
+        axs[3].axis("off")
+        axs[4].imshow(edge_image, cmap="gray")
+        axs[4].set_title("Edge Features")
+        axs[4].axis("off")
+        axs[5].bar(range(len(color_feat)), color_feat)
+        axs[5].set_title("Color Histogram")
+        axs[5].axis("off")
+        plt.suptitle(f"Feature Visualization - {label}")
+        plt.show()
+
+X = np.array(X)
+y = np.array(y)
+
+print("Feature extraction complete. Shape of X:", X.shape)
+print("Labels extracted:", y)
+
+# ------------------ Full Dataset Feature Extraction Functions ------------------
+
+def extract_glcm_features_full(gray):
+    glcm = graycomatrix(gray, [1], [0, np.pi/4, np.pi/2, 3*np.pi/4], 256, symmetric=True, normed=True)
+    contrast = np.mean(graycoprops(glcm, 'contrast'))
+    energy = np.mean(graycoprops(glcm, 'energy'))
+    homogeneity = np.mean(graycoprops(glcm, 'homogeneity'))
+    correlation = np.mean(graycoprops(glcm, 'correlation'))
+    asm = np.mean(graycoprops(glcm, 'ASM'))
+    return [contrast, energy, homogeneity, correlation, asm]
+
+def extract_lbp_features_full(gray):
+    lbp = local_binary_pattern(gray, P=8, R=1, method="uniform")
+    hist, _ = np.histogram(lbp.ravel(), bins=np.arange(0, 10), range=(0, 9))
+    hist = hist.astype("float") / (hist.sum() + 1e-6)
+    return hist.tolist()
+
+def extract_hog_features_full(gray):
+    features, _ = hog(gray, orientations=9, pixels_per_cell=(8,8), cells_per_block=(2,2),
+                      block_norm='L2-Hys', visualize=True)
+    return features[:50].tolist()
+
+def extract_color_histogram_full(img, bins=16):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hist_h = cv2.calcHist([hsv],[0],None,[bins],[0,180])
+    hist_s = cv2.calcHist([hsv],[1],None,[bins],[0,256])
+    hist_v = cv2.calcHist([hsv],[2],None,[bins],[0,256])
+    hist = np.concatenate([hist_h, hist_s, hist_v]).ravel()
+    hist = hist / (hist.sum() + 1e-6)
+    return hist.tolist()
+
+def extract_edge_features_full(gray):
+    edges = cv2.Canny(gray, 100, 200)
+    edge_density = edges.sum() / (edges.shape[0]*edges.shape[1])
+    return [edge_density]
+
+# ------------------ Extract features for all images ------------------
+X_full, y_full = [], []
+for root, dirs, files in os.walk(dataset_path):
+    img_files = [f for f in files if f.lower().endswith((".jpg", ".png", ".jpeg"))]
+    for file in img_files:
+        path = os.path.join(root, file)
+        label = os.path.basename(root)
+        img = cv2.imread(path)
+        if img is None:
+            continue
+        img = cv2.resize(img, (128,128))
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        features = (
+            extract_glcm_features_full(gray) +
+            extract_lbp_features_full(gray) +
+            extract_hog_features_full(gray) +
+            extract_color_histogram_full(img) +
+            extract_edge_features_full(gray)
+        )
+        X_full.append(features)
+        y_full.append(label)
+
+X_full = np.array(X_full)
+y_full = np.array(y_full)
+
+if len(X_full) == 0:
+    raise ValueError("No images found. Check dataset path.")
+
+# ------------------ Train-Test Split ------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X_full, y_full, test_size=0.2, random_state=42, stratify=y_full
+)
+
+# ------------------ Train & Evaluate Models ------------------
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000),
+    "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
+    "SVM": SVC(kernel='linear'),
+    "KNN": KNeighborsClassifier(n_neighbors=5)
+}
+accuracies = {}
+precisions = {}
+
+for name, model in models.items():
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, average='macro', zero_division=0)
+    accuracies[name] = acc
+    precisions[name] = prec
+    print(f"\n{name} Accuracy: {acc:.4f}")
+    print(f"{name} Precision (macro): {prec:.4f}")
+    print(classification_report(y_test, y_pred))
+
+# ------------------ Plot Comparison ------------------
+plt.figure(figsize=(10,5))
+width = 0.35
+x = np.arange(len(models))
+plt.bar(x - width/2, list(accuracies.values()), width, label='Accuracy', color='skyblue')
+plt.bar(x + width/2, list(precisions.values()), width, label='Precision', color='orange')
+plt.xticks(x, list(models.keys()))
+plt.ylabel("Score")
+plt.ylim(0,1)
+plt.title("ML Model Comparison (Accuracy & Precision)")
+plt.legend()
+plt.show()
