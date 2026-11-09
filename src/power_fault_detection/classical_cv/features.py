@@ -147,3 +147,26 @@ def extract_edge_features(
     edges = cv2.Canny(gray_image, low_thresh, high_thresh)
     edge_density = float(edges.sum() / (edges.shape[0] * edges.shape[1] * 255.0))
     return [edge_density], edges
+
+
+def extract_composite_features(
+    bgr_image: np.ndarray,
+    target_size: Tuple[int, int] = (128, 128)
+) -> List[float]:
+    """
+    Extracts and concatenates the full handcrafted feature vector from an image:
+    GLCM + LBP + HOG + HSV Color Histogram + Canny Edge Density.
+
+    Returns:
+        1D combined floating-point feature vector for ML classifiers.
+    """
+    resized = cv2.resize(bgr_image, target_size)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+
+    glcm_feat, _ = extract_glcm_features(gray, multidirectional=True)
+    lbp_feat, _ = extract_lbp_features(gray)
+    hog_feat, _ = extract_hog_features(gray, visualize=False)
+    color_feat = extract_color_histogram(resized)
+    edge_feat, _ = extract_edge_features(gray)
+
+    return glcm_feat + lbp_feat + hog_feat + color_feat + edge_feat
