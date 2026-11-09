@@ -54,3 +54,25 @@ def extract_glcm_features(
         features = [contrast, energy, homogeneity]
 
     return features, glcm
+
+
+def extract_lbp_features(
+    gray_image: np.ndarray,
+    p: int = LBP_POINTS,
+    r: int = LBP_RADIUS,
+    method: str = LBP_METHOD
+) -> Tuple[List[float], np.ndarray]:
+    """
+    Extracts Local Binary Pattern (LBP) rotation-invariant uniform texture features.
+
+    Returns:
+        hist: Normalized histogram of LBP codes.
+        lbp_image: Spatial 2D LBP transformed matrix.
+    """
+    lbp = local_binary_pattern(gray_image, P=p, R=r, method=method)
+    num_bins = p + 2 if method == "uniform" else 256
+    hist, _ = np.histogram(lbp.ravel(), bins=np.arange(0, num_bins + 1), range=(0, num_bins))
+    hist = hist.astype("float")
+    hist /= (hist.sum() + 1e-6)
+
+    return hist.tolist(), lbp
