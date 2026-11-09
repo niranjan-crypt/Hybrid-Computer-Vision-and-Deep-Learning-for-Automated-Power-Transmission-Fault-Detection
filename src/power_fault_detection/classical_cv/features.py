@@ -130,3 +130,20 @@ def extract_color_histogram(
     hist = np.concatenate([hist_h, hist_s, hist_v]).ravel()
     hist = hist / (hist.sum() + 1e-6)
     return hist.tolist()
+
+
+def extract_edge_features(
+    gray_image: np.ndarray,
+    low_thresh: int = CANNY_LOW_THRESHOLD,
+    high_thresh: int = CANNY_HIGH_THRESHOLD
+) -> Tuple[List[float], np.ndarray]:
+    """
+    Computes Canny structural edge density across the input image.
+
+    Returns:
+        edge_density: Normalized ratio of edge pixels to total image pixels.
+        edge_map: Binary 2D Canny edge response map.
+    """
+    edges = cv2.Canny(gray_image, low_thresh, high_thresh)
+    edge_density = float(edges.sum() / (edges.shape[0] * edges.shape[1] * 255.0))
+    return [edge_density], edges
