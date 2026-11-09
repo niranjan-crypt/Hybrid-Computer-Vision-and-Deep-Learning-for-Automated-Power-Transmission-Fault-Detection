@@ -1,110 +1,160 @@
 # Hybrid Computer Vision and Deep Learning for Automated Power Transmission Fault Detection
 
-An automated inspection and fault diagnosis system for power transmission infrastructure using a hybrid approach combining classical computer vision, handcrafted feature engineering, machine learning classifiers, and deep convolutional neural networks (CNNs).
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Framework](https://img.shields.io/badge/TensorFlow-2.x-orange.svg)](https://tensorflow.org)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+An automated inspection, detection, and diagnostic system for electrical power transmission infrastructure utilizing a hybrid framework that bridges domain-specific handcrafted computer vision algorithms, classical machine learning classifiers, and deep convolutional neural networks (CNNs).
 
 ---
 
 ## 📌 Project Overview
 
-Power transmission lines and electrical grid components (e.g., insulator strings, towers, and lines) face environmental and physical degradation, including:
-- **Broken / Missing Insulator Glass Discs**
-- **Rust / Corrosion on Metallic Hardware**
-- **Foreign Object Infestation (e.g., Bird Nests)**
+Transmission line maintenance and grid resilience require continuous inspection of critical components. This repository provides automated fault diagnosis for three key degradation categories:
+1. **Broken / Shattered / Missing Insulator Glass Discs**
+2. **Surface Rust and Atmospheric Corrosion on Steel Towers & Hardware**
+3. **Foreign Object Infestation (e.g., Bird Nests and Vegetation on Pylons)**
 
-This project explores and benchmarks two complementary paradigms:
-1. **Classical Computer Vision & Machine Learning**: Domain-specific feature extraction (GLCM, LBP, HOG, Color Histograms, Canny edges) coupled with traditional ML classifiers (SVM, Random Forest, KNN, Logistic Regression).
-2. **Deep Learning & Transfer Learning**: End-to-end multi-class classification utilizing four architectures: AlexNet (from scratch), VGG16, GoogLeNet (InceptionV3), and ResNet50.
-
----
-
-## 🛠️ Repository Structure
-
-```
-├── deep_lrn_ninj.py    # Complete Deep Learning pipeline (Train, Val, Test split, 4 CNNs, Evaluation)
-├── cv deeplrn.py       # Deep Learning training & validation script
-├── 1.py                # Feature extraction & multi-feature visualization (Color, LBP, HOG, GLCM, Canny)
-├── 2.py                # Feature extraction & ML classifier training (SVM, RF, LR, KNN)
-├── 3.py                # Feature extraction & model evaluation metrics
-├── final.txt           # Unified pipeline for classical feature extraction and ML classification
-├── glass.txt           # Insulator disc detection via Hough Circles & Template Matching
-├── rust.txt            # Rust detection using HSV color thresholding & morphological filtering
-├── nest.txt            # Bird nest detection via edge, contour, and texture analysis
-├── all3codes.txt       # Combined script for glass disc, rust, and nest fault detection
-├── .gitignore          # Git ignore file
-└── README.md           # Project documentation
-```
+The project implements two complementary diagnostic pipelines:
+- **Classical Computer Vision & Machine Learning**: Handcrafted texture (GLCM, LBP), structural gradient (HOG), color distribution (HSV histograms), and edge density (Canny) features paired with SVM, Random Forest, Logistic Regression, and KNN classifiers.
+- **Deep Convolutional Neural Networks & Transfer Learning**: Benchmark across 4 CNN architectures (AlexNet trained from scratch, VGG16, GoogLeNet/InceptionV3, and ResNet50) with automated data augmentation, layer freezing, and One-vs-Rest confusion matrix analytics.
 
 ---
 
-## 🔬 Methodology
+## 🏗️ Modular Architecture & Repository Structure
 
-### 1. Classical Computer Vision & Defect Detection
-- **Insulator Glass Disc Detection**: Utilizes Gaussian blur followed by the **Hough Circle Transform** (`cv2.HoughCircles`) to segment individual insulator discs. Defective/missing discs are identified via **Normalized Cross-Correlation Template Matching** (`cv2.matchTemplate`).
-- **Rust Detection**: Converts images to the **HSV color space** to segment rust and corrosion regions using color threshold masks combined with morphological filtering.
-- **Bird Nest Detection**: Uses Local Binary Patterns (LBP) difference masking and Canny edge analysis to identify anomalous texture clusters on transmission towers.
+```
+├── requirements.txt                         # Python package dependencies
+├── .gitignore                               # Git ignore specification
+├── README.md                                # Comprehensive project documentation
+│
+├── src/                                     # Core modular package
+│   └── power_fault_detection/
+│       ├── __init__.py
+│       ├── config.py                        # Centralized hyperparameters & paths
+│       │
+│       ├── classical_cv/                    # Classical CV & Defect Detectors
+│       │   ├── __init__.py
+│       │   ├── features.py                  # GLCM, LBP, HOG, HSV Hist, Canny
+│       │   ├── glass_detector.py            # Hough Circles & Template Matching
+│       │   ├── rust_detector.py             # HSV Color Masking & Morphology
+│       │   └── nest_detector.py             # LBP Texture Anomaly Detection
+│       │
+│       ├── classical_ml/                    # Classical Machine Learning
+│       │   ├── __init__.py
+│       │   ├── models.py                    # SVM, Random Forest, KNN, Logistic Regression
+│       │   └── pipeline.py                  # Feature matrix extraction & model training
+│       │
+│       ├── deep_learning/                   # Deep Learning Pipelines
+│       │   ├── __init__.py
+│       │   ├── data_loader.py               # ImageDataGenerator with augmentations
+│       │   ├── trainer.py                   # Layer freezing, Adam optimizer & training
+│       │   ├── evaluator.py                 # Multi-class CM, One-vs-Rest TP/TN/FP/FN
+│       │   └── models/                      # CNN Architectures
+│       │       ├── __init__.py
+│       │       ├── alexnet.py               # Custom AlexNet from scratch
+│       │       ├── vgg16.py                 # VGG16 Transfer Learning
+│       │       ├── googlenet.py             # InceptionV3 Transfer Learning
+│       │       └── resnet50.py              # ResNet50 Residual Transfer Learning
+│       │
+│       └── utils/                           # Common Utilities
+│           ├── __init__.py
+│           ├── metrics.py                   # TP, TN, FP, FN, Precision, Recall, F1
+│           └── visualization.py             # CM heatmaps & 6-panel feature galleries
+│
+├── scripts/                                 # Executable CLI Runner Scripts
+│   ├── run_classical_features.py            # Visualizes extracted handcrafted features
+│   ├── run_fault_detection.py               # Inspects glass discs, rust, and bird nests
+│   ├── run_classical_ml.py                  # Trains & evaluates classical ML classifiers
+│   └── run_deep_learning.py                 # Trains & benchmarks the 4 DL models
+│
+└── legacy/                                  # Archived original prototype scripts
+    ├── 1.py
+    ├── 2.py
+    ├── 3.py
+    ├── cv deeplrn.py
+    ├── deep_lrn_ninj.py
+    ├── final.txt
+    ├── glass.txt
+    ├── nest.txt
+    ├── rust.txt
+    └── all3codes.txt
+```
 
-### 2. Handcrafted Feature Extraction
-- **GLCM (Gray-Level Co-occurrence Matrix)**: Extracts contrast, energy, homogeneity, correlation, and angular second moment (ASM).
-- **LBP (Local Binary Patterns)**: Captures micro-texture distributions.
-- **HOG (Histogram of Oriented Gradients)**: Encodes structural shape and directional edge gradients.
-- **HSV Color Histograms**: Quantifies color distributions across Hue, Saturation, and Value channels.
-- **Canny Edge Density**: Computes structural edge presence across the image.
+---
 
-### 3. Machine Learning Classifiers
-- Support Vector Classifier (SVC with RBF kernel)
-- Random Forest Classifier
-- Logistic Regression
-- K-Nearest Neighbors (KNN)
+## 🔬 Methodology & Components
 
-### 4. Deep Learning Architectures
-- **AlexNet**: Custom implementation built from scratch using 5 convolutional layers, batch normalization, max pooling, and dense dropout layers.
-- **VGG16**: Transfer learning using ImageNet pre-trained weights, fine-tuned with a custom classification head (GlobalAveragePooling2D, Dense, Dropout).
-- **GoogLeNet (InceptionV3)**: Multi-scale inception modules pre-trained on ImageNet.
-- **ResNet50**: Deep residual network utilizing shortcut connections to mitigate vanishing gradients.
+### 1. Classical Defect Inspection Algorithms
+- **Insulator Glass Discs**: Identified using Gaussian blur and Hough Circle Transform (`cv2.HOUGH_GRADIENT`). Defective or missing units are localized via Normalized Cross-Correlation Template Matching (`cv2.TM_CCOEFF_NORMED`) against standard intact discs.
+- **Surface Rust Detection**: Formulates a dual-band HSV color segmentation mask capturing both standard orange/brown rust `[5, 60, 60] - [25, 255, 255]` and oxidized dark reddish rust `[0, 40, 40] - [10, 255, 255]`. Noise is removed via median filtering.
+- **Bird Nest Detection**: Employs Local Binary Pattern (LBP) difference masking between healthy transmission structures and inspection targets to detect foreign anomalous clusters.
+
+### 2. Handcrafted Feature Representation
+The classical ML pipeline fuses five distinct visual modalities into a single compact feature vector:
+1. **GLCM Texture**: Contrast, Energy, Homogeneity, Correlation, Angular Second Moment (ASM).
+2. **LBP Micro-texture**: 10-bin rotation-invariant uniform distribution.
+3. **HOG Shape/Gradient**: 50 directional gradient histogram bins.
+4. **HSV Color Histogram**: 48 joint color bins (16 bins per channel).
+5. **Canny Edge Density**: Ratio of edge boundary pixels to total image area.
+
+### 3. Deep Learning Architectures
+| Architecture | Learning Paradigm | Total Layers | Key Characteristics |
+| :--- | :--- | :--- | :--- |
+| **AlexNet** | Trained From Scratch | 8 | 5 Convolutions, BatchNormalization, L2 Reg ($5 \times 10^{-4}$), 50% Dropout |
+| **VGG16** | Transfer Learning | 16 | ImageNet pre-trained base, Frozen backbone, GlobalAveragePooling2D, Dense Head |
+| **GoogLeNet** | Transfer Learning | InceptionV3 | Multi-scale parallel kernels ($1\times1, 3\times3, 5\times5$), Multi-receptive fields |
+| **ResNet50** | Transfer Learning | 50 | Residual shortcut connections ($F(x) + x$), Mitigates vanishing gradient |
 
 ---
 
 ## 📊 Evaluation & Metrics
 
-The deep learning pipeline comprehensively evaluates each model on test data:
-- **Confusion Matrix & Heatmap Visualization**
-- **One-vs-Rest Per-Class Analysis**: True Positives (TP), True Negatives (TN), False Positives (FP), False Negatives (FN)
-- **Classification Report**: Precision, Recall, F1-Score, and Support
+The framework evaluates all models using both aggregate and fine-grained class statistics:
+- **One-vs-Rest Confusion Matrix Analysis**:
+  $$TP = CM[i, i]$$
+  $$FP = \sum_{k} CM[k, i] - TP$$
+  $$FN = \sum_{k} CM[i, k] - TP$$
+  $$TN = \text{Total} - TP - FP - FN$$
+- **Classification Report**: Precision, Recall, Specificity, Macro/Weighted F1-Scores.
+- **Visual Confusion Matrices**: Auto-generated annotated heatmaps saved to the `outputs/` folder.
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Installation & Usage
 
-### Prerequisites
-- Python 3.8+
-- TensorFlow 2.x
-- OpenCV (`opencv-python`)
-- scikit-image
-- scikit-learn
-- NumPy, Matplotlib
-
+### 1. Setup Environment
 ```bash
-pip install tensorflow opencv-python scikit-image scikit-learn numpy matplotlib
+git clone https://github.com/niranjan-crypt/Hybrid-Computer-Vision-and-Deep-Learning-for-Automated-Power-Transmission-Fault-Detection.git
+cd Hybrid-Computer-Vision-and-Deep-Learning-for-Automated-Power-Transmission-Fault-Detection
+pip install -r requirements.txt
 ```
 
-### Running the Deep Learning Pipeline
-Update the dataset paths in `deep_lrn_ninj.py`:
-```python
-TRAIN_VAL_DIR = "path/to/Dataset_root_final"
-TEST_DIR = "path/to/Test_final"
-```
-Run the script:
+### 2. Configure Dataset Paths
+Export environment variables or adjust defaults in `src/power_fault_detection/config.py`:
 ```bash
-python deep_lrn_ninj.py
+export TRAIN_VAL_DIR="/path/to/Dataset_root_final"
+export TEST_DIR="/path/to/Test_final"
+export DATASET_DIR="/path/to/Dataset_root"
 ```
 
-### Running Classical CV & ML
+### 3. Run Pipeline Scripts
 ```bash
-python 1.py    # To visualize extracted features
-python 2.py    # To train and evaluate classical ML models
+# Visualize handcrafted feature extraction on sample images
+python scripts/run_classical_features.py
+
+# Run classical CV defect inspection (glass discs, rust, bird nest)
+python scripts/run_fault_detection.py
+
+# Train and benchmark Classical ML models (SVM, RF, KNN, Logistic Regression)
+python scripts/run_classical_ml.py
+
+# Train and benchmark Deep Learning models (AlexNet, VGG16, GoogLeNet, ResNet50)
+python scripts/run_deep_learning.py
 ```
 
 ---
 
 ## 📄 License
-This repository is released under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.
