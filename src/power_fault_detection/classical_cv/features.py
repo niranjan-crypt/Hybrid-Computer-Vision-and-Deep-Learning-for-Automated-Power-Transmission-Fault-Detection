@@ -76,3 +76,37 @@ def extract_lbp_features(
     hist /= (hist.sum() + 1e-6)
 
     return hist.tolist(), lbp
+
+
+def extract_hog_features(
+    gray_image: np.ndarray,
+    limit: int = HOG_FEATURE_LIMIT,
+    visualize: bool = True
+) -> Tuple[List[float], Union[np.ndarray, None]]:
+    """
+    Extracts Histogram of Oriented Gradients (HOG) structural edge and shape descriptors.
+
+    Returns:
+        features: Leading subset of normalized HOG descriptors.
+        hog_image: Visual gradient map (if visualize=True).
+    """
+    if visualize:
+        features, hog_image = hog(
+            gray_image,
+            orientations=HOG_ORIENTATIONS,
+            pixels_per_cell=HOG_PIXELS_PER_CELL,
+            cells_per_block=HOG_CELLS_PER_BLOCK,
+            block_norm=HOG_BLOCK_NORM,
+            visualize=True
+        )
+        return features[:limit].tolist(), hog_image
+    else:
+        features = hog(
+            gray_image,
+            orientations=HOG_ORIENTATIONS,
+            pixels_per_cell=HOG_PIXELS_PER_CELL,
+            cells_per_block=HOG_CELLS_PER_BLOCK,
+            block_norm=HOG_BLOCK_NORM,
+            visualize=False
+        )
+        return features[:limit].tolist(), None
