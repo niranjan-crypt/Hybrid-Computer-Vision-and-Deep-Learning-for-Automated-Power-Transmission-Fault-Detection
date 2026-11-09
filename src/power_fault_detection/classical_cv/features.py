@@ -110,3 +110,23 @@ def extract_hog_features(
             visualize=False
         )
         return features[:limit].tolist(), None
+
+
+def extract_color_histogram(
+    bgr_image: np.ndarray,
+    bins: int = COLOR_HIST_BINS
+) -> List[float]:
+    """
+    Extracts joint HSV color channel histogram feature vectors.
+
+    Returns:
+        hist: L1-normalized 1D concatenated color distribution vector.
+    """
+    hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+    hist_h = cv2.calcHist([hsv], [0], None, [bins], [0, 180])
+    hist_s = cv2.calcHist([hsv], [1], None, [bins], [0, 256])
+    hist_v = cv2.calcHist([hsv], [2], None, [bins], [0, 256])
+
+    hist = np.concatenate([hist_h, hist_s, hist_v]).ravel()
+    hist = hist / (hist.sum() + 1e-6)
+    return hist.tolist()
